@@ -17,7 +17,7 @@ services:
   user-service:
     build: ./user-service
     environment:
-      - DATABASE_URL=postgres://postgres:password@postgres:5432/ecommerce
+      - DATABASE_URL=${DATABASE_URL}
     depends_on:
       - postgres
     labels:
@@ -46,6 +46,9 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.orders.rule=PathPrefix(`/api/orders`)"
       - "traefik.http.services.orders.loadbalancer.server.port=8000"
+    environment:
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
 
   # 5. MICROSERVICE 4: Notification Service (Node.js)
   notification-service:
@@ -53,7 +56,7 @@ services:
     depends_on:
       - rabbitmq
     environment:
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - RABBITMQ_URL=${RABBITMQ_URL}
 
   # 6. MICROSERVICE 5: Inventory Service (Python)
   inventory-service:
@@ -61,7 +64,7 @@ services:
     depends_on:
       - rabbitmq
     environment:
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - RABBITMQ_URL=${RABBITMQ_URL}
 
   # 7. MICROSERVICE 6: SMS Worker (Node.js)
   sms-worker:
@@ -69,7 +72,7 @@ services:
     depends_on:
       - rabbitmq
     environment:
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - RABBITMQ_URL=${RABBITMQ_URL}
     deploy:
       replicas: 2 # Chạy 2 worker để minh họa MQ Point-to-Point (chia đều job)
 
@@ -77,9 +80,9 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=ecommerce
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "5432:5432"
 
@@ -90,6 +93,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
     ports:
       - "5672:5672"
       - "15672:15672" # RabbitMQ Management Dashboard
