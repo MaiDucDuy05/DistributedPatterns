@@ -8,7 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.HashMap;
 import java.util.Map;
-import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.FanoutExchange;
 import org.springframework.context.annotation.Bean;
 
 @SpringBootApplication
@@ -20,8 +20,8 @@ public class OrderServiceApplication {
     private RabbitTemplate rabbitTemplate;
 
     @Bean
-    public Queue orderQueue() {
-        return new Queue("order_queue", true);
+    public FanoutExchange orderEventsExchange() {
+        return new FanoutExchange("order_events");
     }
 
     public static void main(String[] args) {
@@ -35,9 +35,8 @@ public class OrderServiceApplication {
         // Gửi Message vào RabbitMQ (Các service khác có thể lắng nghe)
         String message = "Đã tạo đơn hàng mới: " + payload.getOrDefault("product", "unknown");
         
-        // Lưu ý: Trong thực tế ta cần cấu hình Exchange/Queue chi tiết hơn, 
-        // ở đây dùng gửi trực tiếp vào queue mặc định cho đơn giản.
-        rabbitTemplate.convertAndSend("order_queue", message);
+        // Lưu ý: Đổi từ việc gửi vào 1 Queue sang gửi vào Fanout Exchange (Broadcast)
+        rabbitTemplate.convertAndSend("order_events", "", message);
 
         Map<String, Object> response = new HashMap<>();
         response.put("service", "Order Service (Java Spring Boot)");

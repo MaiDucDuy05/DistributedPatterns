@@ -55,7 +55,25 @@ services:
     environment:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
 
-  # 6. BACKING SERVICES (Databases & Message Broker)
+  # 6. MICROSERVICE 5: Inventory Service (Python)
+  inventory-service:
+    build: ./inventory-service
+    depends_on:
+      - rabbitmq
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+
+  # 7. MICROSERVICE 6: SMS Worker (Node.js)
+  sms-worker:
+    build: ./sms-worker
+    depends_on:
+      - rabbitmq
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+    deploy:
+      replicas: 2 # Chạy 2 worker để minh họa MQ Point-to-Point (chia đều job)
+
+  # 8. BACKING SERVICES (Databases & Message Broker)
   postgres:
     image: postgres:15-alpine
     environment:
