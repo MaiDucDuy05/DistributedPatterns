@@ -12,7 +12,7 @@ async function connectQueue() {
         const channel = await connection.createChannel();
         
         // 1. Lắng nghe từ Pub/Sub (Exchange)
-        await channel.assertExchange(exchangeName, 'fanout', { durable: false });
+        await channel.assertExchange(exchangeName, 'fanout', { durable: true });
         await channel.assertQueue(queueName, { durable: true });
         await channel.bindQueue(queueName, exchangeName, ''); // Bind queue vào exchange
 

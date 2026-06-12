@@ -20,7 +20,7 @@ def main():
 
     # Khai báo exchange dạng fanout (Pub/Sub)
     exchange_name = 'order_events'
-    channel.exchange_declare(exchange=exchange_name, exchange_type='fanout')
+    channel.exchange_declare(exchange=exchange_name, exchange_type='fanout', durable=True)
 
     # Khai báo queue riêng của Inventory Service
     queue_name = 'inventory_queue'
