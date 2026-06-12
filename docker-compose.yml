@@ -1,0 +1,77 @@
+services:
+  # 1. API GATEWAY: TRAEFIK
+  traefik:
+    image: traefik:v2.11
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"       # Public HTTP port
+      - "8080:8080"   # Traefik Dashboard
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+  # 2. MICROSERVICE 1: User Service (Node.js)
+  user-service:
+    build: ./user-service
+    environment:
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/ecommerce
+    depends_on:
+      - postgres
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.users.rule=PathPrefix(`/api/users`)"
+      - "traefik.http.services.users.loadbalancer.server.port=8000"
+
+  # 3. MICROSERVICE 2: Product Service (Python FastAPI)
+  product-service:
+    build: ./product-service
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/
+    depends_on:
+      - mongo
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.products.rule=PathPrefix(`/api/products`)"
+      - "traefik.http.services.products.loadbalancer.server.port=8000"
+
+  # 4. MICROSERVICE 3: Order Service (Java Spring Boot)
+  order-service:
+    build: ./order-service
+    depends_on:
+      - rabbitmq
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orders.rule=PathPrefix(`/api/orders`)"
+      - "traefik.http.services.orders.loadbalancer.server.port=8000"
+
+  # 5. MICROSERVICE 4: Notification Service (Node.js)
+  notification-service:
+    build: ./notification-service
+    depends_on:
+      - rabbitmq
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+
+  # 6. BACKING SERVICES (Databases & Message Broker)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=ecommerce
+    ports:
+      - "5432:5432"
+
+  mongo:
+    image: mongo:6-jammy
+    ports:
+      - "27017:27017"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672" # RabbitMQ Management Dashboard
