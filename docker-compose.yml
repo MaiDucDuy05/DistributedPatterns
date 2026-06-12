@@ -30,6 +30,7 @@ services:
     build: ./product-service
     environment:
       - MONGO_URL=mongodb://mongo:27017/
+      - REDIS_URL=${REDIS_URL}
     depends_on:
       - mongo
     labels:
@@ -90,6 +91,11 @@ services:
     image: mongo:6-jammy
     ports:
       - "27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
