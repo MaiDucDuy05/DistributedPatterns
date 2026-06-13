@@ -17,10 +17,17 @@ services:
   user-service:
     build: ./user-service
     environment:
-      - DATABASE_WRITE_URL=${DATABASE_WRITE_URL}
-      - DATABASE_READ_URL=${DATABASE_READ_URL}
+      - DATABASE_SHARD_A_WRITE_URL=${DATABASE_SHARD_A_WRITE_URL}
+      - DATABASE_SHARD_A_READ_URL=${DATABASE_SHARD_A_READ_URL}
+      - DATABASE_SHARD_B_WRITE_URL=${DATABASE_SHARD_B_WRITE_URL}
+      - DATABASE_SHARD_B_READ_URL=${DATABASE_SHARD_B_READ_URL}
+      - DATABASE_SHARD_C_WRITE_URL=${DATABASE_SHARD_C_WRITE_URL}
+      - DATABASE_SHARD_C_READ_URL=${DATABASE_SHARD_C_READ_URL}
+      - REDIS_URL=${REDIS_URL}
     depends_on:
-      - pgpool
+      - shard-a-primary
+      - shard-b-primary
+      - shard-c-primary
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users.rule=PathPrefix(`/api/users`)"
@@ -79,7 +86,8 @@ services:
       replicas: 2 # Chạy 2 worker để minh họa MQ Point-to-Point (chia đều job)
 
   # 8. BACKING SERVICES (Databases & Message Broker)
-  postgres-primary:
+  # --- SHARD A ---
+  shard-a-primary:
     image: docker.io/bitnami/postgresql:latest
     environment:
       - POSTGRESQL_REPLICATION_MODE=master
@@ -89,43 +97,72 @@ services:
       - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRESQL_DATABASE=${POSTGRES_DB}
     volumes:
-      - postgres_primary_data:/bitnami/postgresql
+      - shard_a_primary_data:/bitnami/postgresql
 
-  postgres-replica:
+  shard-a-replica:
     image: docker.io/bitnami/postgresql:latest
     depends_on:
-      - postgres-primary
+      - shard-a-primary
     environment:
       - POSTGRESQL_REPLICATION_MODE=slave
       - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
       - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
-      - POSTGRESQL_MASTER_HOST=postgres-primary
+      - POSTGRESQL_MASTER_HOST=shard-a-primary
       - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - postgres_replica_data:/bitnami/postgresql
+      - shard_a_replica_data:/bitnami/postgresql
 
-  pgpool:
-    image: pgpool/pgpool:latest
-    depends_on:
-      - postgres-primary
-      - postgres-replica
+  # --- SHARD B ---
+  shard-b-primary:
+    image: docker.io/bitnami/postgresql:latest
     environment:
-      - PGPOOL_PARAMS_BACKEND_HOSTNAME0=postgres-primary
-      - PGPOOL_PARAMS_BACKEND_PORT0=5432
-      - PGPOOL_PARAMS_BACKEND_WEIGHT0=1
-      - PGPOOL_PARAMS_BACKEND_FLAG0=ALLOW_TO_FAILOVER
-      - PGPOOL_PARAMS_BACKEND_HOSTNAME1=postgres-replica
-      - PGPOOL_PARAMS_BACKEND_PORT1=5432
-      - PGPOOL_PARAMS_BACKEND_WEIGHT1=1
-      - PGPOOL_PARAMS_BACKEND_FLAG1=ALLOW_TO_FAILOVER
-      - PGPOOL_PARAMS_LISTEN_ADDRESSES=*
-      - PGPOOL_PARAMS_PORT=5432
-      - PGPOOL_AUTH_USER=${POSTGRES_USER}
-      - PGPOOL_AUTH_PASSWORD=${POSTGRES_PASSWORD}
-      - PGPOOL_PARAMS_HEALTH_CHECK_PERIOD=0
-      - PGPOOL_PARAMS_SR_CHECK_PERIOD=0
-    ports:
-      - "5432:5432"
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - POSTGRESQL_USERNAME=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_DATABASE=${POSTGRES_DB}
+    volumes:
+      - shard_b_primary_data:/bitnami/postgresql
+
+  shard-b-replica:
+    image: docker.io/bitnami/postgresql:latest
+    depends_on:
+      - shard-b-primary
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - POSTGRESQL_MASTER_HOST=shard-b-primary
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - shard_b_replica_data:/bitnami/postgresql
+
+  # --- SHARD C ---
+  shard-c-primary:
+    image: docker.io/bitnami/postgresql:latest
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - POSTGRESQL_USERNAME=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_DATABASE=${POSTGRES_DB}
+    volumes:
+      - shard_c_primary_data:/bitnami/postgresql
+
+  shard-c-replica:
+    image: docker.io/bitnami/postgresql:latest
+    depends_on:
+      - shard-c-primary
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - POSTGRESQL_MASTER_HOST=shard-c-primary
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - shard_c_replica_data:/bitnami/postgresql
 
   mongo:
     image: mongo:6-jammy
@@ -147,5 +184,9 @@ services:
       - "15672:15672" # RabbitMQ Management Dashboard
 
 volumes:
-  postgres_primary_data:
-  postgres_replica_data:
+  shard_a_primary_data:
+  shard_a_replica_data:
+  shard_b_primary_data:
+  shard_b_replica_data:
+  shard_c_primary_data:
+  shard_c_replica_data:
