@@ -53,5 +53,38 @@ def main():
         except SystemExit:
             os._exit(0)
 
+# ==================================================
+# API ĐỒNG BỘ ĐỂ DEMO CIRCUIT BREAKER TỪ SPRING BOOT
+# ==================================================
+import threading
+import uvicorn
+from fastapi import FastAPI, HTTPException
+import random
+
+app = FastAPI()
+
+@app.get("/api/inventory/check")
+def check_inventory():
+    print("\n[FastAPI] Nhận request kiểm tra kho từ Order Service...")
+    # Cố tình ném lỗi 50% số lần hoặc chạy chậm để Spring Boot Circuit Breaker phải ngắt Cầu Dao
+    chance = random.random()
+    if chance < 0.3:
+        print("[FastAPI] (Cố tình) Ném lỗi 500!")
+        raise HTTPException(status_code=500, detail="Lỗi DB ngẫu nhiên do hệ thống giả lập.")
+    elif chance < 0.6:
+        print("[FastAPI] (Cố tình) Ngủ 6 giây để Spring Boot timeout!")
+        time.sleep(6)
+    
+    print("[FastAPI] Trả về: Hàng còn trong kho!")
+    return {"status": "ok", "message": "Hàng còn trong kho"}
+
+def start_fastapi():
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="error")
+
 if __name__ == '__main__':
+    # Chạy FastAPI ở background thread
+    t = threading.Thread(target=start_fastapi, daemon=True)
+    t.start()
+    
+    # Chạy RabbitMQ consumer ở thread chính
     main()

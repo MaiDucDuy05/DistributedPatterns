@@ -51,6 +51,65 @@ class ConsistentHashingRouter {
 }
 
 // ==========================================
+// RESILIENCY PATTERNS: RETRY & CIRCUIT BREAKER
+// ==========================================
+const retry = require('async-retry');
+const CircuitBreaker = require('opossum');
+
+// Cấu hình Circuit Breaker
+const circuitBreakerOptions = {
+  timeout: 5000, // Cắt nếu request mất quá 5s
+  errorThresholdPercentage: 50, // Nhảy cầu dao nếu 50% request lỗi
+  resetTimeout: 10000 // Sau 10s sẽ thử Half-Open
+};
+
+// Hàm lấy dữ liệu với Retry (Tuyến 1)
+const fetchFromDatabaseWithRetry = async (pool, userId, targetShard) => {
+  return await retry(
+    async (bail, attempt) => {
+      if (attempt > 1) {
+        console.log(`[Retry] Lần thử thứ ${attempt} gọi tới Database của ${targetShard}...`);
+      }
+      const result = await pool.query('SELECT * FROM sharded_users WHERE id = $1', [userId]);
+      if (result.rows.length === 0) {
+        // bail() sẽ báo cho thư viện retry biết đây là lỗi không thể cứu vãn (VD: data ko tồn tại), đừng retry nữa
+        const err = new Error('User not found in ' + targetShard);
+        err.status = 404;
+        bail(err);
+        return;
+      }
+      return result.rows[0];
+    },
+    {
+      retries: 3,
+      minTimeout: 1000, // Đợi 1s cho lần thử thứ 2
+      maxTimeout: 3000, // Đợi tối đa 3s
+      randomize: true // Áp dụng Jitter
+    }
+  );
+};
+
+// Tạo Cầu dao (Tuyến cuối)
+const databaseBreaker = new CircuitBreaker(fetchFromDatabaseWithRetry, circuitBreakerOptions);
+
+// Lắng nghe sự kiện cầu dao
+databaseBreaker.on('open', () => console.log('\x1b[31m[Circuit Breaker] OPEN: Cầu dao ĐÃ NHẢY! Dừng ngay mọi request tới DB.\x1b[0m'));
+databaseBreaker.on('halfOpen', () => console.log('\x1b[33m[Circuit Breaker] HALF-OPEN: Đang thử rò điện gửi lại 1 request xem DB đã sống chưa...\x1b[0m'));
+databaseBreaker.on('close', () => console.log('\x1b[32m[Circuit Breaker] CLOSE: Mạch điện an toàn, DB đã phục hồi.\x1b[0m'));
+
+// Định nghĩa hàm Fallback (Phao cứu sinh)
+databaseBreaker.fallback((pool, userId, targetShard, error) => {
+  if (error && error.status === 404) throw error; // Không fallback lỗi NotFound
+  
+  console.log(`\x1b[35m[Fallback] Kích hoạt phao cứu sinh trả về data mặc định do lỗi: ${error.message}\x1b[0m`);
+  return {
+    id: userId,
+    username: 'fallback_guest_user',
+    notice: 'Đây là dữ liệu tạm thời do hệ thống đang bận. Vui lòng thử lại sau!'
+  };
+});
+
+// ==========================================
 // TÍCH HỢP REDIS (Cache Aside)
 // ==========================================
 const { createClient } = require('redis');
@@ -156,26 +215,25 @@ app.get('/api/users/:id', async (req, res) => {
     console.log(`[Sharding] Tìm UUID: ${userId} -> Nằm ở: ${targetShard}`);
     console.log(`[Routing] Gửi lệnh SELECT tới ${targetShard} (Replica)`);
     
-    // BƯỚC 3: Lấy đúng Read Pool của Shard đó
+    // BƯỚC 3: Lấy đúng Read Pool của Shard đó và gọi qua Circuit Breaker (đã tích hợp Retry)
     const pool = shards[targetShard].read;
-    const result = await pool.query('SELECT * FROM sharded_users WHERE id = $1', [userId]);
+    const user = await databaseBreaker.fire(pool, userId, targetShard);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found in ' + targetShard });
+    // BƯỚC 4: Ghi ngược lại lên Redis với TTL 60 giây (Chỉ ghi nếu không phải là dữ liệu fallback)
+    if (!user.notice) {
+      await redisClient.set(cacheKey, JSON.stringify(user), { EX: 60 });
+      console.log(`[Cache] Lưu dữ liệu vào Redis cho UUID: ${userId} (TTL: 60s)`);
     }
-    
-    const user = result.rows[0];
-
-    // BƯỚC 4: Ghi ngược lại lên Redis với TTL 60 giây
-    await redisClient.set(cacheKey, JSON.stringify(user), { EX: 60 });
-    console.log(`[Cache] Lưu dữ liệu vào Redis cho UUID: ${userId} (TTL: 60s)`);
 
     res.json({ 
-      message: 'Fetched from Database',
-      source: targetShard, 
+      message: user.notice ? 'Fallback Triggered' : 'Fetched from Database',
+      source: user.notice ? 'Fallback' : targetShard, 
       user: user 
     });
   } catch (err) {
+    if (err.status === 404) {
+      return res.status(404).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   }
 });
