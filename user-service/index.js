@@ -4,14 +4,18 @@ const { Pool } = require('pg');
 const app = express();
 app.use(express.json());
 
-// Kết nối PostgreSQL
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://postgres:password@postgres:5432/ecommerce'
+// Khởi tạo 2 connection pool (Application-Level Routing)
+const writePool = new Pool({
+  connectionString: process.env.DATABASE_WRITE_URL || 'postgres://postgres:password@postgres-primary:5432/ecommerce'
+});
+
+const readPool = new Pool({
+  connectionString: process.env.DATABASE_READ_URL || 'postgres://postgres:password@postgres-replica:5432/ecommerce'
 });
 
 // Chờ DB sẵn sàng rồi mới tạo bảng tạm (demo)
 setTimeout(() => {
-  pool.query(`
+  writePool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username VARCHAR(50) NOT NULL
@@ -21,7 +25,8 @@ setTimeout(() => {
 
 app.get('/api/users', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM users');
+    console.log('[Routing] Gửi truy vấn SELECT tới DATABASE_READ_URL (Replica)');
+    const result = await readPool.query('SELECT * FROM users');
     res.json({
       service: 'User Service (Node.js)',
       users: result.rows,
@@ -35,7 +40,8 @@ app.get('/api/users', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { username } = req.body;
-    const result = await pool.query('INSERT INTO users(username) VALUES($1) RETURNING *', [username || 'user_' + Date.now()]);
+    console.log('[Routing] Gửi truy vấn INSERT tới DATABASE_WRITE_URL (Primary)');
+    const result = await writePool.query('INSERT INTO users(username) VALUES($1) RETURNING *', [username || 'user_' + Date.now()]);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });

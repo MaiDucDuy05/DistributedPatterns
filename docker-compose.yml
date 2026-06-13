@@ -17,9 +17,10 @@ services:
   user-service:
     build: ./user-service
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_WRITE_URL=${DATABASE_WRITE_URL}
+      - DATABASE_READ_URL=${DATABASE_READ_URL}
     depends_on:
-      - postgres
+      - pgpool
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.users.rule=PathPrefix(`/api/users`)"
@@ -78,12 +79,51 @@ services:
       replicas: 2 # Chạy 2 worker để minh họa MQ Point-to-Point (chia đều job)
 
   # 8. BACKING SERVICES (Databases & Message Broker)
-  postgres:
-    image: postgres:15-alpine
+  postgres-primary:
+    image: docker.io/bitnami/postgresql:latest
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRESQL_REPLICATION_MODE=master
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - POSTGRESQL_USERNAME=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_DATABASE=${POSTGRES_DB}
+    volumes:
+      - postgres_primary_data:/bitnami/postgresql
+
+  postgres-replica:
+    image: docker.io/bitnami/postgresql:latest
+    depends_on:
+      - postgres-primary
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - POSTGRESQL_MASTER_HOST=postgres-primary
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_replica_data:/bitnami/postgresql
+
+  pgpool:
+    image: pgpool/pgpool:latest
+    depends_on:
+      - postgres-primary
+      - postgres-replica
+    environment:
+      - PGPOOL_PARAMS_BACKEND_HOSTNAME0=postgres-primary
+      - PGPOOL_PARAMS_BACKEND_PORT0=5432
+      - PGPOOL_PARAMS_BACKEND_WEIGHT0=1
+      - PGPOOL_PARAMS_BACKEND_FLAG0=ALLOW_TO_FAILOVER
+      - PGPOOL_PARAMS_BACKEND_HOSTNAME1=postgres-replica
+      - PGPOOL_PARAMS_BACKEND_PORT1=5432
+      - PGPOOL_PARAMS_BACKEND_WEIGHT1=1
+      - PGPOOL_PARAMS_BACKEND_FLAG1=ALLOW_TO_FAILOVER
+      - PGPOOL_PARAMS_LISTEN_ADDRESSES=*
+      - PGPOOL_PARAMS_PORT=5432
+      - PGPOOL_AUTH_USER=${POSTGRES_USER}
+      - PGPOOL_AUTH_PASSWORD=${POSTGRES_PASSWORD}
+      - PGPOOL_PARAMS_HEALTH_CHECK_PERIOD=0
+      - PGPOOL_PARAMS_SR_CHECK_PERIOD=0
     ports:
       - "5432:5432"
 
@@ -105,3 +145,7 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672" # RabbitMQ Management Dashboard
+
+volumes:
+  postgres_primary_data:
+  postgres_replica_data:
