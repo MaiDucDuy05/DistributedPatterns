@@ -51,6 +51,7 @@ services:
     build: ./order-service
     depends_on:
       - rabbitmq
+      - order_db
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.orders.rule=PathPrefix(`/api/orders`)"
@@ -58,6 +59,9 @@ services:
     environment:
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://order_db:5432/orderdb
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
 
   # 5. MICROSERVICE 4: Notification Service (Node.js)
   notification-service:
@@ -164,6 +168,15 @@ services:
     volumes:
       - shard_c_replica_data:/bitnami/postgresql
 
+  order_db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=orderdb
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+
   mongo:
     image: mongo:6-jammy
     ports:
@@ -190,3 +203,4 @@ volumes:
   shard_b_replica_data:
   shard_c_primary_data:
   shard_c_replica_data:
+  order_db_data:
